@@ -532,4 +532,270 @@ client.on('interactionCreate', async (interaction) => {
                 const g = interaction.guild;
                 const embed = createEmbed('info', `🏠 ${g.name}`,
                     `**Owner:** <@${g.ownerId}>\n` +
-                   
+                    `**Members:** ${g.memberCount}\n` +
+                    `**Channels:** ${g.channels.cache.size}\n` +
+                    `**Roles:** ${g.roles.cache.size}\n` +
+                    `**Boosts:** ${g.premiumSubscriptionCount || 0} (Tier ${g.premiumTier})\n` +
+                    `**Created:** <t:${Math.floor(g.createdTimestamp / 1000)}:R>\n` +
+                    `**ID:** \`${g.id}\``)
+                    .setThumbnail(g.iconURL({ dynamic: true, size: 512 }) || null);
+                await reply(embed);
+                break;
+            }
+
+            case 'userinfo': {
+                const target = interaction.options.getUser('user') || interaction.user;
+                const m = await guild.members.fetch(target.id).catch(() => null);
+                const embed = createEmbed('info', `👤 ${target.tag}`,
+                    `**ID:** \`${target.id}\`\n` +
+                    `**Bot:** ${target.bot ? 'Yes' : 'No'}\n` +
+                    `**Account Created:** <t:${Math.floor(target.createdTimestamp / 1000)}:R>\n` +
+                    (m ? `**Joined:** <t:${Math.floor(m.joinedTimestamp / 1000)}:R>\n**Top Role:** ${m.roles.highest}\n**Roles:** ${m.roles.cache.size - 1}` : ''))
+                    .setThumbnail(target.displayAvatarURL({ dynamic: true, size: 512 }));
+                await reply(embed);
+                break;
+            }
+
+            case 'avatar': {
+                const target = interaction.options.getUser('user') || interaction.user;
+                const embed = createEmbed('primary', `🖼️ ${target.tag}'s Avatar`, `[Download](${target.displayAvatarURL({ dynamic: true, size: 4096 })})`)
+                    .setImage(target.displayAvatarURL({ dynamic: true, size: 4096 }));
+                await reply(embed);
+                break;
+            }
+
+            // ─────────── KICK ───────────
+            case 'kick': {
+                if (!requireMod()) return;
+                const target = interaction.options.getMember('user');
+                const reason = interaction.options.getString('reason') || 'No reason provided';
+                if (!target) return replyEphemeral(createEmbed('error', '❌ Not Found', 'Member not found.'));
+                if (!target.kickable) return replyEphemeral(createEmbed('error', '❌ Cannot Kick', 'I cannot kick this user (higher role or missing perms).'));
+                await target.kick(`${interaction.user.tag}: ${reason}`);
+                await reply(createEmbed('success', '👢 Member Kicked',
+                    `**User:** ${target.user.tag} (\`${target.id}\`)\n**Moderator:** ${interaction.user}\n**Reason:** ${reason}`));
+                sendLog(guild, createEmbed('warning', '👢 Kick', `**User:** ${target.user.tag}\n**Mod:** ${interaction.user}\n**Reason:** ${reason}`), true);
+                break;
+            }
+
+            // ─────────── BAN ───────────
+            case 'ban': {
+                if (!requireMod()) return;
+                const target = interaction.options.getMember('user');
+                const user = interaction.options.getUser('user');
+                const reason = interaction.options.getString('reason') || 'No reason provided';
+                const delDays = interaction.options.getInteger('delete_days') || 0;
+                if (!user) return replyEphemeral(createEmbed('error', '❌ Not Found', 'User not found.'));
+                if (target && !target.bannable) return replyEphemeral(createEmbed('error', '❌ Cannot Ban', 'I cannot ban this user.'));
+                await guild.members.ban(user.id, { reason: `${interaction.user.tag}: ${reason}`, deleteMessageSeconds: delDays * 86400 });
+                await reply(createEmbed('success', '🔨 Member Banned',
+                    `**User:** ${user.tag} (\`${user.id}\`)\n**Moderator:** ${interaction.user}\n**Reason:** ${reason}\n**Deleted Messages:** ${delDays} day(s)`));
+                sendLog(guild, createEmbed('error', '🔨 Ban', `**User:** ${user.tag}\n**Mod:** ${interaction.user}\n**Reason:** ${reason}`), true);
+                break;
+            }
+
+            // ─────────── UNBAN ───────────
+            case 'unban': {
+                if (!requireMod()) return;
+                const userId = interaction.options.getString('user_id');
+                const reason = interaction.options.getString('reason') || 'No reason provided';
+                const banList = await guild.bans.fetch().catch(() => null);
+                const banned = banList?.get(userId);
+                if (!banned) return replyEphemeral(createEmbed('error', '❌ Not Banned', 'This user is not banned.'));
+                await guild.members.unban(userId, `${interaction.user.tag}: ${reason}`);
+                await reply(createEmbed('success', '✅ User Unbanned',
+                    `**User:** ${banned.user.tag} (\`${userId}\`)\n**Moderator:** ${interaction.user}\n**Reason:** ${reason}`));
+                sendLog(guild, createEmbed('success', '✅ Unban', `**User:** ${banned.user.tag}\n**Mod:** ${interaction.user}`), true);
+                break;
+            }
+
+            // ─────────── TIMEOUT ───────────
+            case 'timeout': {
+                if (!requireMod()) return;
+                const target = interaction.options.getMember('user');
+                const mins = interaction.options.getInteger('minutes');
+                const reason = interaction.options.getString('reason') || 'No reason provided';
+                if (!target) return replyEphemeral(createEmbed('error', '❌ Not Found', 'Member not found.'));
+                if (!target.moderatable) return replyEphemeral(createEmbed('error', '❌ Cannot Timeout', 'I cannot timeout this user.'));
+                await target.timeout(mins * 60 * 1000, `${interaction.user.tag}: ${reason}`);
+                await reply(createEmbed('success', '⏰ Member Timed Out',
+                    `**User:** ${target.user.tag}\n**Duration:** ${mins} min\n**Moderator:** ${interaction.user}\n**Reason:** ${reason}`));
+                sendLog(guild, createEmbed('warning', '⏰ Timeout', `**User:** ${target.user.tag}\n**Duration:** ${mins}m\n**Mod:** ${interaction.user}\n**Reason:** ${reason}`), true);
+                break;
+            }
+
+            // ─────────── UNTIMEOUT ───────────
+            case 'untimeout': {
+                if (!requireMod()) return;
+                const target = interaction.options.getMember('user');
+                const reason = interaction.options.getString('reason') || 'No reason provided';
+                if (!target) return replyEphemeral(createEmbed('error', '❌ Not Found', 'Member not found.'));
+                if (!target.isCommunicationDisabled()) return replyEphemeral(createEmbed('error', '❌ Not Timed Out', 'This user is not timed out.'));
+                await target.timeout(null, `${interaction.user.tag}: ${reason}`);
+                await reply(createEmbed('success', '✅ Timeout Removed',
+                    `**User:** ${target.user.tag}\n**Moderator:** ${interaction.user}\n**Reason:** ${reason}`));
+                sendLog(guild, createEmbed('success', '✅ Untimeout', `**User:** ${target.user.tag}\n**Mod:** ${interaction.user}`), true);
+                break;
+            }
+
+            // ─────────── WARN ───────────
+            case 'warn': {
+                if (!requireMod()) return;
+                const target = interaction.options.getUser('user');
+                const reason = interaction.options.getString('reason');
+                const key = `${guild.id}-${target.id}`;
+                const list = warns.get(key) || [];
+                list.push({ reason, by: interaction.user.tag, at: Date.now() });
+                warns.set(key, list);
+                await reply(createEmbed('warning', '⚠️ Warning Issued',
+                    `**User:** ${target.tag}\n**Moderator:** ${interaction.user}\n**Reason:** ${reason}\n**Total Warns:** ${list.length}`));
+                // DM the user
+                target.send({ embeds: [createEmbed('warning', `⚠️ Warning in ${guild.name}`, `**Reason:** ${reason}`)] }).catch(() => {});
+                sendLog(guild, createEmbed('warning', '⚠️ Warn', `**User:** ${target.tag}\n**Mod:** ${interaction.user}\n**Reason:** ${reason}`), true);
+                break;
+            }
+
+            case 'warnings': {
+                if (!requireMod()) return;
+                const target = interaction.options.getUser('user');
+                const key = `${guild.id}-${target.id}`;
+                const list = warns.get(key) || [];
+                if (!list.length) return reply(createEmbed('info', '📭 No Warnings', `**${target.tag}** has no warnings.`));
+                const desc = list.map((w, i) => `**${i + 1}.** ${w.reason}\n> By: ${w.by} • <t:${Math.floor(w.at / 1000)}:R>`).join('\n\n');
+                await reply(createEmbed('warning', `⚠️ Warnings for ${target.tag}`, desc));
+                break;
+            }
+
+            case 'clearwarns': {
+                if (!requireMod()) return;
+                const target = interaction.options.getUser('user');
+                warns.delete(`${guild.id}-${target.id}`);
+                await reply(createEmbed('success', '🧹 Warnings Cleared', `All warnings for **${target.tag}** cleared.`));
+                break;
+            }
+
+            // ─────────── PURGE ───────────
+            case 'purge': {
+                if (!member.permissions.has(PermissionsBitField.Flags.ManageMessages))
+                    return replyEphemeral(createEmbed('error', '❌ Permission Denied', 'You need Manage Messages permission.'));
+                const amount = interaction.options.getInteger('amount');
+                await interaction.deferReply({ ephemeral: true });
+                const deleted = await interaction.channel.bulkDelete(amount, true).catch(() => null);
+                if (!deleted) return interaction.editReply({ embeds: [createEmbed('error', '❌ Failed', 'Could not delete messages (older than 14 days?)')] });
+                await interaction.editReply({ embeds: [createEmbed('success', '🧹 Messages Purged', `Deleted **${deleted.size}** messages.`)] });
+                break;
+            }
+
+            // ─────────── SLOWMODE ───────────
+            case 'slowmode': {
+                if (!member.permissions.has(PermissionsBitField.Flags.ManageChannels))
+                    return replyEphemeral(createEmbed('error', '❌ Permission Denied', 'You need Manage Channels permission.'));
+                const sec = interaction.options.getInteger('seconds');
+                await interaction.channel.setRateLimitPerUser(sec);
+                await reply(createEmbed('success', '🐌 Slowmode Updated', sec === 0 ? 'Slowmode disabled.' : `Slowmode set to **${sec}s**.`));
+                break;
+            }
+
+            // ─────────── LOCK / UNLOCK ───────────
+            case 'lock': {
+                if (!member.permissions.has(PermissionsBitField.Flags.ManageChannels))
+                    return replyEphemeral(createEmbed('error', '❌ Permission Denied', 'You need Manage Channels permission.'));
+                await interaction.channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: false });
+                await reply(createEmbed('success', '🔒 Channel Locked', 'This channel has been locked.'));
+                break;
+            }
+
+            case 'unlock': {
+                if (!member.permissions.has(PermissionsBitField.Flags.ManageChannels))
+                    return replyEphemeral(createEmbed('error', '❌ Permission Denied', 'You need Manage Channels permission.'));
+                await interaction.channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: null });
+                await reply(createEmbed('success', '🔓 Channel Unlocked', 'This channel has been unlocked.'));
+                break;
+            }
+
+            // ─────────── NICKNAME ───────────
+            case 'nickname': {
+                if (!requireMod()) return;
+                const target = interaction.options.getMember('user');
+                const nick = interaction.options.getString('nickname') || null;
+                if (!target) return replyEphemeral(createEmbed('error', '❌ Not Found', 'Member not found.'));
+                if (!target.manageable) return replyEphemeral(createEmbed('error', '❌ Cannot Manage', 'I cannot manage this member.'));
+                await target.setNickname(nick, `By ${interaction.user.tag}`);
+                await reply(createEmbed('success', '📝 Nickname Updated', `**User:** ${target.user.tag}\n**New Nick:** ${nick || '(reset)'}`));
+                break;
+            }
+
+            // ─────────── ROLE ───────────
+            case 'role': {
+                if (!member.permissions.has(PermissionsBitField.Flags.ManageRoles))
+                    return replyEphemeral(createEmbed('error', '❌ Permission Denied', 'You need Manage Roles permission.'));
+                const target = interaction.options.getMember('user');
+                const role = interaction.options.getRole('role');
+                const action = interaction.options.getString('action');
+                if (!target) return replyEphemeral(createEmbed('error', '❌ Not Found', 'Member not found.'));
+                if (action === 'add') await target.roles.add(role);
+                else await target.roles.remove(role);
+                await reply(createEmbed('success', `✅ Role ${action === 'add' ? 'Added' : 'Removed'}`,
+                    `**User:** ${target.user.tag}\n**Role:** ${role}`));
+                break;
+            }
+
+            // ─────────── SNIPE ───────────
+            case 'snipe': {
+                const s = snipes.get(interaction.channel.id);
+                if (!s) return replyEphemeral(createEmbed('error', '📭 Nothing to Snipe', 'No recently deleted messages.'));
+                const embed = createEmbed('info', `🎯 Sniped Message`,
+                    `**Author:** ${s.author.tag}\n**Deleted:** <t:${Math.floor(s.timestamp / 1000)}:R>\n\n**Content:**\n\`\`\`${s.content.slice(0, 1000)}\`\`\``);
+                await reply(embed);
+                break;
+            }
+
+            // ─────────── ANTI TOGGLES ───────────
+            case 'antinuke': {
+                if (!member.permissions.has(PermissionsBitField.Flags.Administrator))
+                    return replyEphemeral(createEmbed('error', '❌ Denied', 'Admin only.'));
+                CONFIG.antinuke.enabled = interaction.options.getString('state') === 'on';
+                await reply(createEmbed('success', '🛡️ Anti-Nuke Updated', `Anti-Nuke is now **${CONFIG.antinuke.enabled ? 'ENABLED' : 'DISABLED'}**`));
+                break;
+            }
+
+            case 'antispam': {
+                if (!member.permissions.has(PermissionsBitField.Flags.Administrator))
+                    return replyEphemeral(createEmbed('error', '❌ Denied', 'Admin only.'));
+                CONFIG.antispam.enabled = interaction.options.getString('state') === 'on';
+                await reply(createEmbed('success', '🛡️ Anti-Spam Updated', `Anti-Spam is now **${CONFIG.antispam.enabled ? 'ENABLED' : 'DISABLED'}**`));
+                break;
+            }
+
+            case 'antilink': {
+                if (!member.permissions.has(PermissionsBitField.Flags.Administrator))
+                    return replyEphemeral(createEmbed('error', '❌ Denied', 'Admin only.'));
+                CONFIG.link.enabled = interaction.options.getString('state') === 'on';
+                await reply(createEmbed('success', '🛡️ Anti-Link Updated', `Anti-Link is now **${CONFIG.link.enabled ? 'ENABLED' : 'DISABLED'}**`));
+                break;
+            }
+        }
+    } catch (e) {
+        console.error(`Command error [${commandName}]:`, e);
+        if (interaction.deferred || interaction.replied) {
+            interaction.editReply({ embeds: [createEmbed('error', '❌ Error', `Something went wrong: \`${e.message}\``)] }).catch(() => {});
+        } else {
+            interaction.reply({ embeds: [createEmbed('error', '❌ Error', `Something went wrong: \`${e.message}\``)], ephemeral: true }).catch(() => {});
+        }
+    }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  PROCESS GUARDS
+// ═══════════════════════════════════════════════════════════
+process.on('unhandledRejection', (e) => console.error('Unhandled Rejection:', e));
+process.on('uncaughtException', (e) => console.error('Uncaught Exception:', e));
+
+// ═══════════════════════════════════════════════════════════
+//  LOGIN
+// ═══════════════════════════════════════════════════════════
+if (!CONFIG.token) {
+    console.error('❌ DISCORD_TOKEN missing in .env file!');
+    process.exit(1);
+}
+client.login(CONFIG.token);
